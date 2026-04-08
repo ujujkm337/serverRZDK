@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Панель Управления Журналами</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --accent: #2563eb; --bg: #f8fafc; --card: #ffffff;
+            --text: #1e293b; --border: #e2e8f0;
+            --n-color: #ef4444; --u-color: #f59e0b; --p-color: #10b981;
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { font-family: -apple-system, system-ui, sans-serif; background: var(--bg); margin: 0; color: var(--text); }
+
+        /* Вход */
+        #login-screen { display: flex; justify-content: center; align-items: center; height: 100vh; padding: 20px; }
+        .login-card { background: white; padding: 30px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); width: 100%; max-width: 360px; text-align: center; border: 1px solid var(--border); }
+        input { width: 100%; padding: 14px; margin: 10px 0; border: 1px solid var(--border); border-radius: 12px; font-size: 16px; outline: none; }
+        .btn-blue { width: 100%; padding: 14px; background: var(--accent); color: white; border: none; border-radius: 12px; font-weight: bold; cursor: pointer; font-size: 16px; }
+
+        /* Админ-Панель */
+        #admin-dashboard { display: none; padding: 20px; }
+        .dash-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .group-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 15px; }
+        .group-card { background: white; padding: 20px; border-radius: 15px; border: 1px solid var(--border); text-align: center; cursor: pointer; transition: 0.2s; }
+        .group-card:active { transform: scale(0.95); background: #f1f5f9; }
+        .group-card h3 { margin: 0; color: var(--accent); }
+
+        /* Интерфейс журнала */
+        #main-interface { display: none; }
+        header { background: white; padding: 15px; text-align: center; border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; }
+        .back-btn { position: absolute; left: 15px; top: 18px; background: #f1f5f9; border: none; padding: 8px 12px; border-radius: 8px; font-size: 12px; font-weight: bold; cursor: pointer; }
+
+        .nav { display: flex; justify-content: center; gap: 6px; padding: 12px; background: var(--bg); position: sticky; top: 55px; z-index: 90; }
+        .day-btn { padding: 10px 14px; border: 1px solid var(--border); background: white; border-radius: 10px; font-size: 12px; font-weight: 700; cursor: pointer; }
+        .day-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+        .table-container { padding: 0 8px 120px; }
+        .card { background: white; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; }
+        table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        th { background: #f1f5f9; padding: 10px 2px; font-size: 10px; color: #64748b; }
+        td { border-bottom: 1px solid #f8fafc; padding: 6px 2px; text-align: center; }
+        .td-name { text-align: left; padding-left: 10px; font-weight: 500; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        select { width: 90%; padding: 6px 0; border-radius: 8px; border: 1px solid var(--border); font-weight: 800; text-align-last: center; appearance: none; }
+        .val-н { color: var(--n-color); background: #fef2f2; }
+        .val-у { color: var(--u-color); background: #fffbeb; }
+        .val-п { color: var(--p-color); background: #f0fdf4; }
+
+        .export-panel { position: fixed; bottom: 0; width: 100%; background: white; padding: 15px; display: flex; gap: 10px; border-top: 1px solid var(--border); }
+        .btn-exp { flex: 1; padding: 14px; border-radius: 12px; border: none; font-weight: 700; cursor: pointer; font-size: 13px; }
+        .btn-p { background: #f1f5f9; } .btn-d { background: var(--accent); color: white; }
+
+        #loader { display: none; position: fixed; top: 15px; right: 15px; background: #1e293b; color: white; padding: 8px 15px; border-radius: 20px; font-size: 12px; z-index: 2000; }
+    </style>
+</head>
+<body>
+
+<div id="loader">Сохранение...</div>
+
+<div id="login-screen">
+    <div class="login-card">
+        <h2>Вход в систему</h2>
+        <input type="text" id="g-in" placeholder="Группа">
+        <input type="password" id="p-in" placeholder="Пароль">
+        <button class="btn-blue" onclick="login()">Войти</button>
+    </div>
+</div>
+
+<div id="admin-dashboard">
+    <div class="dash-header">
+        <h2>Список групп</h2>
+        <button class="btn-blue" onclick="exportAllGroups()" style="width: auto; padding: 10px 15px;">Скачать всех (ПН)</button>
+    </div>
+    <div id="group-list" class="group-grid"></div>
+</div>
+
+<div id="main-interface">
+    <header>
+        <button class="back-btn" id="back-to-dash" onclick="goBack()" style="display:none;">← Назад</button>
+        <h1 id="title">Группа ---</h1>
+        <p id="curDay">Понедельник</p>
+    </header>
+
+    <div class="nav">
+        <button class="day-btn active" onclick="sw(0)">ПН</button>
+        <button class="day-btn" onclick="sw(1)">ВТ</button>
+        <button class="day-btn" onclick="sw(2)">СР</button>
+        <button class="day-btn" onclick="sw(3)">ЧТ</button>
+        <button class="day-btn" onclick="sw(4)">ПТ</button>
+    </div>
+
+    <div class="table-container">
+        <div class="card">
+            <table>
+                <thead>
+                    <tr><th style="width:30px">№</th><th>Студент</th><th style="width:40px">1</th><th style="width:40px">2</th><th style="width:40px">3</th><th style="width:40px">4</th><th style="width:40px">5</th></tr>
+                </thead>
+                <tbody id="tb"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="export-panel">
+        <button class="btn-exp btn-p" onclick="exP()">Пара</button>
+        <button class="btn-exp btn-d" onclick="exD()">День</button>
+    </div>
+</div>
+
+<script>
+    const SB_URL = "https://ywrelulhhqbqhtvmfnou.supabase.co";
+    const SB_KEY = "sb_publishable_-8vaKVwLRTvIfu4o0L3Xyw_RycBAk-p";
+    const supabaseClient = supabase.createClient(SB_URL, SB_KEY);
+
+    let viewG = "", isAdm = false, curD = 0, attData = [];
+    const dayL = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"];
+    
+    // Полный список студентов (всегда 24 человека)
+    const rawN = ["Авилов С.", "Брижатов М.", "Вишняков В.", "Гришанович С.", "Емельянов Д.", "Идиев А.", "Карлин Д.", "Клешня Д.", "Коваленко И.", "Коваленко М.", "Кольгофер Н.", "Кусков Д.", "Масляный С.", "Николаев Н.", "Ольденбургер Т.", "Розенко В.", "Смольков А.", "Степанов Е.", "Сузько Д.", "Трибой Е.", "Хасанов Ш.", "Хихлуха Н.", "Хоминский И.", "Цепелев Н."];
+
+    async function login() {
+        const g = document.getElementById('g-in').value;
+        const p = document.getElementById('p-in').value;
+        const { data, error } = await supabaseClient.from('profiles').select('*').eq('group_number', g).eq('password', p).single();
+
+        if (error || !data) { alert("Неверно!"); return; }
+
+        isAdm = data.is_admin;
+        document.getElementById('login-screen').style.display = 'none';
+
+        if (isAdm) showAdminDash();
+        else { viewG = data.group_number; showJournal(); }
+    }
+
+    async function showAdminDash() {
+        document.getElementById('admin-dashboard').style.display = 'block';
+        document.getElementById('main-interface').style.display = 'none';
+        const { data } = await supabaseClient.from('profiles').select('group_number').eq('is_admin', false);
+        const list = document.getElementById('group-list');
+        list.innerHTML = "";
+        data.forEach(g => {
+            list.innerHTML += `<div class="group-card" onclick="openGroup('${g.group_number}')"><h3>${g.group_number}</h3></div>`;
+        });
+    }
+
+    function openGroup(gn) {
+        viewG = gn;
+        document.getElementById('back-to-dash').style.display = 'block';
+        showJournal();
+    }
+
+    function goBack() {
+        document.getElementById('admin-dashboard').style.display = 'block';
+        document.getElementById('main-interface').style.display = 'none';
+    }
+
+    function showJournal() {
+        document.getElementById('admin-dashboard').style.display = 'none';
+        document.getElementById('main-interface').style.display = 'block';
+        loadAtt();
+    }
+
+    async function loadAtt() {
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('title').innerText = "Группа " + viewG;
+        
+        const { data } = await supabaseClient.from('attendance').select('*').eq('group_number', viewG);
+        
+        // Магия: Сопоставляем список имен с данными из базы
+        attData = rawN.map((name, index) => {
+            const dbRecord = data ? data.find(r => r.student_id === index) : null;
+            return dbRecord || {
+                student_id: index,
+                student_name: name,
+                pairs: Array(5).fill(0).map(() => ["н", "н", "н", "н", "н"])
+            };
+        });
+
+        document.getElementById('loader').style.display = 'none';
+        render();
+    }
+
+    function render() {
+        const tb = document.getElementById('tb');
+        document.getElementById('curDay').innerText = dayL[curD];
+        tb.innerHTML = '';
+        attData.forEach((s, i) => {
+            let tr = document.createElement('tr');
+            let h = `<td>${i+1}</td><td class="td-name">${s.student_name}</td>`;
+            for(let j=0; j<5; j++) {
+                let v = s.pairs[curD][j];
+                h += `<td><select class="val-${v}" onchange="upd(${i},${j},this.value)">
+                    <option value="н" ${v=='н'?'selected':''}>н</option>
+                    <option value="у" ${v=='у'?'selected':''}>у</option>
+                    <option value="+" ${v=='+'?'selected':''}>+</option>
+                </select></td>`;
+            }
+            tr.innerHTML = h; tb.appendChild(tr);
+        });
+    }
+
+    async function upd(si, pi, v) {
+        document.getElementById('loader').style.display = 'block';
+        attData[si].pairs[curD][pi] = v;
+        await supabaseClient.from('attendance').upsert({ 
+            group_number: viewG, 
+            student_id: si, 
+            student_name: attData[si].student_name, 
+            pairs: attData[si].pairs 
+        }, { onConflict: 'group_number, student_id' });
+        setTimeout(() => document.getElementById('loader').style.display = 'none', 300);
+        render();
+    }
+
+    function sw(d) { curD = d; document.querySelectorAll('.day-btn').forEach((b, i) => b.classList.toggle('active', i == d)); render(); }
+    
+    function fmt(v) { return v==='+' ? "  +  " : (v==='у' ? "у    " : "    н"); }
+
+    function exP() {
+        let p = prompt("Пара (1-5)?", "1");
+        if(!p) return;
+        let csv = "\uFEFF№;Студент;Пара "+p+"\n";
+        attData.forEach((s, i) => csv += `${i+1};${s.student_name};${fmt(s.pairs[curD][p-1])}\n`);
+        dl(csv, `Гр_${viewG}_П${p}.csv`);
+    }
+
+    function exD() {
+        let csv = "\uFEFF№;Студент;1;2;3;4;5\n";
+        attData.forEach((s, i) => csv += `${i+1};${s.student_name};${s.pairs[curD].map(v => fmt(v)).join(';')}\n`);
+        dl(csv, `Гр_${viewG}_День.csv`);
+    }
+
+    async function exportAllGroups() {
+        // Здесь для простоты скачиваем ПН по всем, кто есть в базе
+        const { data } = await supabaseClient.from('attendance').select('*');
+        let csv = "\uFEFFГруппа;Студент;1;2;3;4;5\n";
+        data.forEach(s => {
+            csv += `${s.group_number};${s.student_name};${s.pairs[0].join(';')}\n`;
+        });
+        dl(csv, `Все_Группы_ПН.csv`);
+    }
+
+    function dl(csv, n) {
+        const b = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const l = document.createElement("a"); l.href = URL.createObjectURL(b); l.download = n; l.click();
+    }
+</script>
+</body>
+</html>
